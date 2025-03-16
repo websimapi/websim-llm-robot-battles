@@ -90,8 +90,8 @@ const App = () => {
         setIsGenerating(true);
         
         try {
-            // Call LLM to generate bot design
-            const completion = await websim.chat.completions.create({
+            // Step 1: Call LLM to generate base bot design
+            const baseDesignCompletion = await websim.chat.completions.create({
                 messages: [
                     {
                         role: "system",
@@ -99,10 +99,9 @@ const App = () => {
                         
                         RULES FOR ROBOT DESIGN:
                         1. Your design must use only Matter.js physics bodies (rectangles, circles, etc.)
-                        2. The robot should have a main body and some moving parts
-                        3. The robot can have properties like: health, speed, attack, defense, special abilities
+                        2. The robot should have a main body
+                        3. The robot should have core properties: health, speed, attack, defense
                         4. The robot should have a color scheme and visual design
-                        5. Each bot must have unique behaviors for attack and defense
                         
                         IMPORTANT: You must respond with valid JSON in exactly this format, with no additional text:
                         {
@@ -116,16 +115,8 @@ const App = () => {
                                 "attack": 7,
                                 "defense": 4
                             },
-                            "specialAbility": "Description of special move",
                             "design": {
-                                "mainBody": { "type": "rectangle|circle", "width": 50, "height": 50, "radius": 25 },
-                                "parts": [
-                                    { "type": "rectangle|circle", "x": 30, "y": 0, "width": 20, "height": 10, "radius": 10, "angle": 0, "role": "weapon" }
-                                ]
-                            },
-                            "behavior": {
-                                "attackPattern": "Description of attack behavior",
-                                "defensePattern": "Description of defense behavior"
+                                "mainBody": { "type": "rectangle|circle", "width": 50, "height": 50, "radius": 25 }
                             }
                         }`
                     },
@@ -137,20 +128,91 @@ const App = () => {
                 json: true
             });
             
-            let botDesign;
+            let baseDesign;
             try {
-                botDesign = JSON.parse(completion.content);
+                baseDesign = JSON.parse(baseDesignCompletion.content);
             } catch (parseError) {
                 console.error("Failed to parse bot JSON:", parseError);
-                console.log("Raw content:", completion.content);
+                console.log("Raw content:", baseDesignCompletion.content);
                 throw new Error("Failed to generate valid bot design. Please try again with a different prompt.");
             }
             
-            // Validate essential properties exist
-            if (!botDesign.name || !botDesign.description || !botDesign.design || 
-                !botDesign.design.mainBody || !botDesign.stats) {
-                throw new Error("Generated bot design is missing essential properties");
+            // Step 2: Call LLM to add attachments and battle behavior
+            const fullDesignCompletion = await websim.chat.completions.create({
+                messages: [
+                    {
+                        role: "system",
+                        content: `You are an AI that enhances battle robots for a 2D physics-based arena.
+                        You will be given a base robot design, and your job is to add:
+                        1. Moving parts and attachments
+                        2. A special ability
+                        3. Detailed attack and defense behaviors for AI battles
+                        
+                        RULES FOR ENHANCEMENT:
+                        1. All parts must be physics bodies (rectangles or circles)
+                        2. Each part should have a role (weapon, shield, arm, leg, etc)
+                        3. The behavior should describe specific movements and attack patterns
+                        
+                        IMPORTANT: You must respond with valid JSON in exactly this format, with no additional text:
+                        {
+                            "specialAbility": "Description of special move",
+                            "parts": [
+                                { 
+                                    "type": "rectangle|circle", 
+                                    "x": 30, 
+                                    "y": 0, 
+                                    "width": 20, 
+                                    "height": 10, 
+                                    "radius": 10, 
+                                    "angle": 0, 
+                                    "role": "weapon|arm|leg|shield|etc" 
+                                }
+                            ],
+                            "behavior": {
+                                "attackPattern": "Detailed description of attack behavior",
+                                "defensePattern": "Detailed description of defense behavior",
+                                "specialMoves": [
+                                    { "name": "Move name", "description": "What the move does", "cooldown": 5 }
+                                ]
+                            }
+                        }`
+                    },
+                    {
+                        role: "user",
+                        content: `Enhance this robot with parts and battle behavior: ${JSON.stringify(baseDesign)}\n\nMake it follow the prompt: ${botPrompt}`
+                    }
+                ],
+                json: true
+            });
+            
+            let enhancements;
+            try {
+                enhancements = JSON.parse(fullDesignCompletion.content);
+            } catch (parseError) {
+                console.error("Failed to parse enhancements JSON:", parseError);
+                throw new Error("Failed to enhance bot design. Using basic design instead.");
+                // If enhancement fails, we'll still have the base design
+                enhancements = { 
+                    parts: [], 
+                    specialAbility: "Basic attack",
+                    behavior: {
+                        attackPattern: "Simple direct attack",
+                        defensePattern: "Basic evasion",
+                        specialMoves: []
+                    }
+                };
             }
+            
+            // Combine base design with enhancements
+            const botDesign = {
+                ...baseDesign,
+                specialAbility: enhancements.specialAbility,
+                design: {
+                    ...baseDesign.design,
+                    parts: enhancements.parts
+                },
+                behavior: enhancements.behavior
+            };
             
             // Save the bot to the database
             const newBot = await room.collection('robot').create({
@@ -381,26 +443,119 @@ const App = () => {
         const botDesign = bot.design;
         const speed = botDesign.stats.speed * 0.02;
         
-        // Simple AI movement
+        // Use the custom behavior defined by the LLM
+        const behavior = botDesign.behavior || {
+            attackPattern: "Simple direct attack",
+            defensePattern: "Basic evasion"
+        };
+        
+        // Implement behavior based on the LLM's description
         if (isPlayer) {
-            // Player bot moves toward opponent
-            const direction = playerBotRef.current.mainBody.position.x < opponentBotRef.current.mainBody.position.x ? 1 : -1;
-            Body.applyForce(bot.mainBody, bot.mainBody.position, {
-                x: direction * speed,
-                y: -0.005 // Small upward force for jumping
-            });
+            // Player bot moves based on its attackPattern
+            if (behavior.attackPattern.toLowerCase().includes("circling")) {
+                // Circle around the opponent
+                const angleSpeed = 0.05;
+                const radius = 100;
+                const dx = opponentBotRef.current.mainBody.position.x - playerBotRef.current.mainBody.position.x;
+                const dy = opponentBotRef.current.mainBody.position.y - playerBotRef.current.mainBody.position.y;
+                const currentAngle = Math.atan2(dy, dx);
+                const targetX = opponentBotRef.current.mainBody.position.x + radius * Math.cos(currentAngle + angleSpeed);
+                const targetY = opponentBotRef.current.mainBody.position.y + radius * Math.sin(currentAngle + angleSpeed);
+                
+                Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                    x: (targetX - bot.mainBody.position.x) * 0.0005,
+                    y: (targetY - bot.mainBody.position.y) * 0.0005
+                });
+            } else if (behavior.attackPattern.toLowerCase().includes("charge") || 
+                      behavior.attackPattern.toLowerCase().includes("rush")) {
+                // Direct charge attack with more force
+                const direction = playerBotRef.current.mainBody.position.x < opponentBotRef.current.mainBody.position.x ? 1 : -1;
+                Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                    x: direction * speed * 1.5,
+                    y: -0.01 // Bigger jump for charging
+                });
+            } else {
+                // Default approach
+                const direction = playerBotRef.current.mainBody.position.x < opponentBotRef.current.mainBody.position.x ? 1 : -1;
+                Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                    x: direction * speed,
+                    y: -0.005 // Small upward force for jumping
+                });
+            }
         } else {
-            // Opponent bot moves toward player
-            const direction = opponentBotRef.current.mainBody.position.x < playerBotRef.current.mainBody.position.x ? 1 : -1;
-            Body.applyForce(bot.mainBody, bot.mainBody.position, {
-                x: direction * speed,
-                y: -0.005 // Small upward force for jumping
-            });
+            // Opponent bot behavior
+            if (behavior.attackPattern.toLowerCase().includes("ranged") || 
+               behavior.attackPattern.toLowerCase().includes("distance")) {
+                // Maintain distance
+                const distanceX = opponentBotRef.current.mainBody.position.x - playerBotRef.current.mainBody.position.x;
+                const optimalDistance = 150;
+                const direction = Math.abs(distanceX) < optimalDistance ? 
+                    (distanceX > 0 ? 1 : -1) : (distanceX > 0 ? -1 : 1);
+                
+                Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                    x: direction * speed,
+                    y: -0.005
+                });
+            } else if (behavior.attackPattern.toLowerCase().includes("ambush") || 
+                      behavior.attackPattern.toLowerCase().includes("surprise")) {
+                // Wait then sudden attack
+                if (Math.random() < 0.1) { // Occasional sudden moves
+                    const direction = opponentBotRef.current.mainBody.position.x < playerBotRef.current.mainBody.position.x ? 1 : -1;
+                    Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                        x: direction * speed * 2.5,
+                        y: -0.02
+                    });
+                }
+            } else {
+                // Default approach
+                const direction = opponentBotRef.current.mainBody.position.x < playerBotRef.current.mainBody.position.x ? 1 : -1;
+                Body.applyForce(bot.mainBody, bot.mainBody.position, {
+                    x: direction * speed,
+                    y: -0.005
+                });
+            }
         }
         
-        // Special abilities based on robot design
-        // This is simplified - could be expanded for more complex behaviors
-        if (Math.random() < 0.05) { // 5% chance per update to use special ability
+        // Special abilities based on the LLM-defined special moves
+        const specialMoves = botDesign.behavior?.specialMoves || [];
+        
+        if (specialMoves.length > 0 && Math.random() < 0.05) {
+            // Choose a random special move
+            const randomMove = specialMoves[Math.floor(Math.random() * specialMoves.length)];
+            const message = `${botDesign.name} uses ${randomMove.name}: ${randomMove.description}!`;
+            setBattleLog(prev => [...prev, { text: message, type: isPlayer ? "player" : "opponent" }]);
+            
+            // Apply damage based on attack stat
+            const damage = Math.floor(botDesign.stats.attack * (Math.random() * 2 + 0.5));
+            
+            if (isPlayer) {
+                setBattleStats(prev => ({
+                    ...prev,
+                    opponent: {
+                        ...prev.opponent,
+                        health: Math.max(0, prev.opponent.health - damage)
+                    }
+                }));
+                setBattleLog(prev => [...prev, { 
+                    text: `${botDesign.name} deals ${damage} damage to ${opponent.name}!`,
+                    type: "player"
+                }]);
+            } else {
+                setBattleStats(prev => ({
+                    ...prev,
+                    player: {
+                        ...prev.player,
+                        health: Math.max(0, prev.player.health - damage)
+                    }
+                }));
+                setBattleLog(prev => [...prev, { 
+                    text: `${botDesign.name} deals ${damage} damage to ${selectedBot.name}!`,
+                    type: "opponent"
+                }]);
+            }
+        }
+        // Original simple special ability chance remains as fallback
+        else if (Math.random() < 0.03) {
             const message = `${botDesign.name} uses ${botDesign.specialAbility}!`;
             setBattleLog(prev => [...prev, { text: message, type: isPlayer ? "player" : "opponent" }]);
             
@@ -634,8 +789,11 @@ const App = () => {
             }
         }, [bot, previewRef]);
         
+        // Check if this is the user's bot
+        const isMyBot = bot.creator_id === room.party.client.id;
+        
         return (
-            <div className={`bot-card ${isSelected ? 'selected' : ''}`} 
+            <div className={`bot-card ${isSelected ? 'selected' : ''} ${isMyBot ? 'my-bot' : ''}`} 
                 onClick={() => onSelect(bot)}
                 style={isSelected ? { border: '2px solid #4a4dff' } : {}}>
                 <div className="bot-card-header">

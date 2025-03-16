@@ -120,6 +120,25 @@ h1 {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    position: relative;
+}
+
+.bot-card.my-bot::after {
+    content: "MY BOT";
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: #4a4dff;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.bot-card.selected {
+    border: 2px solid #4a4dff;
+    box-shadow: 0 0 10px rgba(74, 77, 255, 0.5);
 }
 
 .bot-card-header {
@@ -207,4 +226,3 @@ h1 {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-
