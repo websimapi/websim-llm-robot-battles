@@ -104,23 +104,23 @@ const App = () => {
                         4. The robot should have a color scheme and visual design
                         5. Each bot must have unique behaviors for attack and defense
                         
-                        Respond with JSON only in this format:
+                        IMPORTANT: You must respond with valid JSON in exactly this format, with no additional text:
                         {
                             "name": "Robot name",
                             "description": "Brief description",
-                            "color": "Main color (hex)",
-                            "accentColor": "Secondary color (hex)",
+                            "color": "#hexcode",
+                            "accentColor": "#hexcode",
                             "stats": {
-                                "health": number (50-150),
-                                "speed": number (1-10),
-                                "attack": number (1-10),
-                                "defense": number (1-10)
+                                "health": 100,
+                                "speed": 5,
+                                "attack": 7,
+                                "defense": 4
                             },
                             "specialAbility": "Description of special move",
                             "design": {
-                                "mainBody": { "type": "rectangle|circle", "width": number, "height": number, "radius": number },
+                                "mainBody": { "type": "rectangle|circle", "width": 50, "height": 50, "radius": 25 },
                                 "parts": [
-                                    { "type": "rectangle|circle", "x": number, "y": number, "width": number, "height": number, "radius": number, "angle": number, "role": "weapon|shield|wheel|arm" }
+                                    { "type": "rectangle|circle", "x": 30, "y": 0, "width": 20, "height": 10, "radius": 10, "angle": 0, "role": "weapon" }
                                 ]
                             },
                             "behavior": {
@@ -137,7 +137,20 @@ const App = () => {
                 json: true
             });
             
-            const botDesign = JSON.parse(completion.content);
+            let botDesign;
+            try {
+                botDesign = JSON.parse(completion.content);
+            } catch (parseError) {
+                console.error("Failed to parse bot JSON:", parseError);
+                console.log("Raw content:", completion.content);
+                throw new Error("Failed to generate valid bot design. Please try again with a different prompt.");
+            }
+            
+            // Validate essential properties exist
+            if (!botDesign.name || !botDesign.description || !botDesign.design || 
+                !botDesign.design.mainBody || !botDesign.stats) {
+                throw new Error("Generated bot design is missing essential properties");
+            }
             
             // Save the bot to the database
             const newBot = await room.collection('robot').create({
@@ -839,4 +852,3 @@ const App = () => {
 // Render the app
 const root = createRoot(document.getElementById('app'));
 root.render(<App />);
-
